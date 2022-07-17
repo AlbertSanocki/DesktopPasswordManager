@@ -6,10 +6,12 @@ from hashlib import sha1
 from install import install
 from crypto import Crypto
 from managers import AccountManager, CredenrialManager
+from models import engine
 
 class CredentialsTab:
     """Tab containing saved credentials"""
-    def __init__(self, tab, user_id, crypto):
+    def __init__(self, db, tab, user_id, crypto):
+        self.db = db
         self.user_id = user_id
         self.crypto = crypto
         self.tree = ttk.Treeview(
@@ -27,7 +29,7 @@ class CredentialsTab:
         method using CredentialManager
         to load credentials from data base and show them in app window
         """
-        credentials=CredenrialManager(self.user_id).load_credentials()
+        credentials=CredenrialManager(self.db, self.user_id).load_credentials()
         self.tree.delete(*self.tree.get_children())
         for credential in credentials:
             self.tree.insert(
@@ -44,7 +46,10 @@ class CredentialsTab:
 
     def on_select(self, event):
         """saving password selected from tree into clipboard"""
-        [item] = self.tree.selection()
+        try:
+            [item] = self.tree.selection()
+        except ValueError:
+            return None
         selection = self.tree.item(item, 'values')
         self.coppy_to_clipboard(selection[2])
 
@@ -56,7 +61,8 @@ class CredentialsTab:
 
 class AddPasswordTab:
     """Tab to save credentials"""
-    def __init__(self, tab, credentials_tab,tab_system , user_id, crypto):
+    def __init__(self, db, tab, credentials_tab,tab_system , user_id, crypto):
+        self.db = db
         self.tab_system = tab_system
         self.credentials_tab = credentials_tab
         self.user_id = user_id
@@ -98,18 +104,20 @@ class AddPasswordTab:
             messagebox.showinfo('Message Box', 'Entry boxes cannot be empty!')
         else:
             encrypted_password = self.crypto.encrypt(password)
-            CredenrialManager(self.user_id).add_credential(portal, login, encrypted_password)
+            CredenrialManager(self.db, self.user_id).add_credential(portal, login, encrypted_password)
             self.credentials_tab.get_data()
             self.tab_system.select(0)
             messagebox.showinfo('Message Box', 'Password Saved!')
 
 class LoginWindow:
     """Launch window for logging in or creating a new account"""
-    def __init__(self):
+    def __init__(self, db):
         self.master = tk.Tk()
         self.master.title('Password Manager')
         self.master.geometry('350x200')
         self.master.resizable(False, False)
+
+        self.db = db
 
         user_login_label = ttk.Label(text='Login')
         self.user_login_entry = ttk.Entry()
@@ -146,11 +154,12 @@ class LoginWindow:
         """Check login and password and log in to the application"""
         if len(user_login) == 0 or len(user_password) == 0:
             messagebox.showinfo('Message Box', 'Login and Password cannot be empty!')
-        elif sha1(user_password.encode('utf-8')).hexdigest().upper() == AccountManager(user_login, user_password).load_account().user_password:
+        elif sha1(user_password.encode('utf-8')).hexdigest().upper() == AccountManager(self.db).load_account(user_login, user_password).user_password:
             ApplicationWindow(
+                self.db,
                 self.master,
-                AccountManager(user_login, user_password).load_account().user_id,
-                AccountManager(user_login, user_password).load_account().user_password,
+                AccountManager(self.db).load_account(user_login, user_password).user_id,
+                AccountManager(self.db).load_account(user_login, user_password).user_password,
             )
             self.master.withdraw()
         else:
@@ -158,7 +167,7 @@ class LoginWindow:
 
     def on_click_create_acc(self, event):
         """Create a new window for creating a new account"""
-        NewAccWindow(self.master)
+        NewAccWindow(self.db, self.master)
 
 
     def on_click_toggle_password(self, event):
@@ -176,7 +185,8 @@ class LoginWindow:
 
 class ApplicationWindow:
     """App window with CredentialsTab and AddPasswordTab"""
-    def __init__(self, parent, user_id, user_password):
+    def __init__(self, db, parent, user_id, user_password):
+        self.db = db
         self.user_id = user_id
         self.parent = parent
         self.crpyto = Crypto(user_password)
@@ -189,8 +199,9 @@ class ApplicationWindow:
         self.credentials_tab = tk.Frame(self.tabsystem)
         self.add_password_tab = tk.Frame(self.tabsystem)
 
-        cred_tab = CredentialsTab(self.credentials_tab, self.user_id, self.crpyto)
+        cred_tab = CredentialsTab(self.db, self.credentials_tab, self.user_id, self.crpyto)
         AddPasswordTab(
+            self.db,
             self.add_password_tab,
             cred_tab,
             self.tabsystem,
@@ -213,8 +224,9 @@ class ApplicationWindow:
 
 class NewAccWindow:
     """Window for creating a new account"""
-    def __init__(self, parent):
+    def __init__(self,  db, parent):
         self.master = tk.Toplevel(parent)
+        self.db = db
         self.master.title('Password Manager')
         self.master.geometry('350x200')
         self.master.resizable(False, False)
@@ -252,7 +264,7 @@ class NewAccWindow:
 
     def create_user(self,user_login, user_password, user_repeated_password):
         """validate login and password, check if account already exists, create a new account"""
-        dtoaccount = AccountManager(user_login, user_password).load_account()
+        dtoaccount = AccountManager(self.db).load_account(user_login, user_password)
         if len(user_login) == 0:
             messagebox.showinfo('Message Box', 'Login cannot be empty!')
         elif user_login == dtoaccount.user_login:
@@ -264,7 +276,7 @@ class NewAccWindow:
                 if user_password == user_repeated_password:
                     messagebox.showinfo('Message Box', 'Account Created')
                     hashed_user_password = sha1(user_password.encode('utf-8')).hexdigest().upper()
-                    AccountManager(user_login, hashed_user_password).add_account()
+                    AccountManager(self.db).add_account(user_login, hashed_user_password)
                     self.master.destroy()
                 else:
                     messagebox.showinfo('Message Box', 'Passwords are not the same!')
@@ -273,5 +285,5 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'install':
         install()
         sys.exit()
-    root = LoginWindow()
+    root = LoginWindow(engine)
     root.run()
